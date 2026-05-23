@@ -27,17 +27,17 @@ class BrightnessController:
 
             if isinstance(brightness_list, list):
                 for i, brightness in enumerate(brightness_list):
-                    self.original_brightness[i] = brightness
+                    self.original_brightness[i] = 100  # Restore hedefi her zaman %100
                     self.current_brightness[i] = brightness
                     self.is_dimmed[i] = False
                     logger.info(f"Monitör {i} ({self.monitors[i] if i < len(self.monitors) else 'Unknown'}): "
-                               f"Başlangıç parlaklığı {brightness}%")
+                               f"Mevcut parlaklık {brightness}%, restore hedefi %100")
             else:
                 # Tek monitör
-                self.original_brightness[0] = brightness_list
+                self.original_brightness[0] = 100
                 self.current_brightness[0] = brightness_list
                 self.is_dimmed[0] = False
-                logger.info(f"Başlangıç parlaklığı: {brightness_list}%")
+                logger.info(f"Mevcut parlaklık: {brightness_list}%, restore hedefi %100")
 
         except Exception as e:
             logger.error(f"Monitör başlatma hatası: {e}")

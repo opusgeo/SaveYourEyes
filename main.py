@@ -189,7 +189,8 @@ class BrightnessGuard:
         logger.info("🔄 Monitör parlaklıkları geri yükleniyor...")
         restored_count = 0
 
-        for monitor_index in range(3):  # 3 monitör var
+        monitor_count = self.brightness_controller.get_monitor_count() or 3
+        for monitor_index in range(monitor_count):
             if self.monitor_states.get(monitor_index, False):
                 try:
                     self.brightness_controller.restore_brightness(monitor_index)
