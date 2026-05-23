@@ -21,17 +21,17 @@ class SystemTrayGUI:
 
     def create_icon_image(self, color="white"):
         """Sistem tepsisi ikonu oluştur"""
-        # 64x64 basit bir ikon oluştur
         image = Image.new('RGB', (64, 64), color='black')
         draw = ImageDraw.Draw(image)
 
-        # Güneş şekli çiz (parlaklık sembolü)
         if color == "green":
-            fill_color = (0, 255, 0)  # Aktif - yeşil
+            fill_color = (0, 255, 0)       # Normal mod, aktif
         elif color == "orange":
-            fill_color = (255, 165, 0)  # Karartılmış - turuncu
+            fill_color = (255, 165, 0)     # Ekran karartıldı
+        elif color == "blue":
+            fill_color = (80, 140, 255)    # Gece modu
         else:
-            fill_color = (255, 255, 255)  # Normal - beyaz
+            fill_color = (255, 255, 255)   # Devre dışı
 
         # Daire çiz
         draw.ellipse([16, 16, 48, 48], fill=fill_color, outline=fill_color)
@@ -48,15 +48,17 @@ class SystemTrayGUI:
 
         return image
 
-    def update_icon(self, is_active, is_dimmed):
+    def update_icon(self, is_active, mode, is_dimmed):
         """İkon rengini güncelle"""
         if self.icon is not None:
-            if is_dimmed:
-                self.icon.icon = self.create_icon_image("orange")
-            elif is_active:
-                self.icon.icon = self.create_icon_image("green")
-            else:
+            if not is_active:
                 self.icon.icon = self.create_icon_image("white")
+            elif mode == 'night':
+                self.icon.icon = self.create_icon_image("blue")
+            elif is_dimmed:
+                self.icon.icon = self.create_icon_image("orange")
+            else:
+                self.icon.icon = self.create_icon_image("green")
 
     def on_quit(self, icon, item):
         """Uygulamayı kapat ve parlaklıkları geri yükle"""
@@ -73,10 +75,16 @@ class SystemTrayGUI:
         """Korumayı aç/kapat"""
         if self.app.is_active:
             self.app.deactivate()
-            logger.info("Koruma devre dışı")
         else:
             self.app.activate()
-            logger.info("Koruma etkin")
+
+    def on_set_night(self, icon, item):
+        """Gece moduna geç"""
+        self.app.set_mode('night')
+
+    def on_set_normal(self, icon, item):
+        """Normal moda geç"""
+        self.app.set_mode('normal')
 
     def on_settings(self, icon, item):
         """Ayarlar penceresi aç"""
@@ -195,6 +203,16 @@ class SystemTrayGUI:
                 self.on_toggle,
                 default=True
             ),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                lambda text: f"{'●' if self.app.mode == 'night' else '○'} Gece Modu",
+                self.on_set_night
+            ),
+            pystray.MenuItem(
+                lambda text: f"{'●' if self.app.mode == 'normal' else '○'} Normal Mod",
+                self.on_set_normal
+            ),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("Ayarlar", self.on_settings),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Çıkış", self.on_quit)
@@ -205,7 +223,7 @@ class SystemTrayGUI:
         self.running = True
         self.icon = pystray.Icon(
             "brightness_guard",
-            self.create_icon_image("green"),
+            self.create_icon_image("blue"),
             "Brightness Guard",
             self.create_menu()
         )

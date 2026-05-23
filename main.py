@@ -38,69 +38,82 @@ class BrightnessGuard:
     def __init__(self):
         """Ana uygulama sınıfı - Multi-monitor destekli"""
         self.brightness_controller = BrightnessController()
-        self.screen_analyzer = ScreenAnalyzer(sample_size=20)  # Daha küçük sample = daha hızlı
+        self.screen_analyzer = ScreenAnalyzer(sample_size=20)
         self.gui = None
 
         # Ayarlar
-        self.brightness_threshold = 70  # Parlaklık eşiği (0-100)
+        self.brightness_threshold = 70  # Normal modda beyaz piksel eşiği (0-100)
         self.target_brightness = 30     # Hedef parlaklık (karartma seviyesi)
-        self.check_interval = 0.05      # Kontrol aralığı (saniye) - 0.05 = 50ms, çok responsive!
+        self.check_interval = 0.05      # Kontrol aralığı (saniye)
+
+        # Mod: 'night' = her zaman %30, 'normal' = ekran %50 beyazsa %30
+        self.mode = 'night'
 
         # Durum
         self.is_running = False
         self.is_active = True
-        self.is_cleaning_up = False  # Temizlik yapılıyor mu?
-        self.monitor_states = {}  # Her monitörün durumunu takip et
+        self.is_cleaning_up = False
+        self.monitor_states = {}
 
         monitor_count = self.screen_analyzer.get_monitor_count()
         logger.info("=" * 60)
         logger.info("Brightness Guard başlatıldı - Multi-Monitor Modu")
         logger.info("=" * 60)
         logger.info(f"Tespit edilen monitör sayısı: {monitor_count}")
-        logger.info(f"Parlaklık eşiği: {self.brightness_threshold}%")
+        logger.info(f"Başlangıç modu: Gece Modu")
         logger.info(f"Hedef parlaklık: {self.target_brightness}%")
-        logger.info(f"Kontrol aralığı: {self.check_interval*1000:.0f}ms (Süper responsive!)")
+        logger.info(f"Kontrol aralığı: {self.check_interval*1000:.0f}ms")
         logger.info("=" * 60)
 
+    def set_mode(self, mode):
+        """Modu değiştir: 'night' veya 'normal'"""
+        self.mode = mode
+        monitor_count = self.screen_analyzer.get_monitor_count()
+
+        if mode == 'night':
+            logger.info("🌙 Gece Modu aktif — tüm monitörler %30'a kısıldı")
+            for i in range(monitor_count):
+                self.brightness_controller.dim_screen(self.target_brightness, i)
+                self.monitor_states[i] = True
+        else:
+            logger.info("☀️ Normal Mod aktif — beyaz ekran takibi başladı")
+            for i in range(monitor_count):
+                if self.monitor_states.get(i, False):
+                    self.brightness_controller.restore_brightness(i)
+                    self.monitor_states[i] = False
+
+        if self.gui:
+            self.gui.update_icon(self.is_active, self.mode, any(self.monitor_states.values()))
+
     def check_and_adjust(self):
-        """Tüm monitörleri kontrol et ve gerekirse parlaklığı ayarla"""
+        """Normal modda ekranları izle ve gerekirse parlaklığı ayarla"""
+        if self.mode == 'night':
+            return  # Gece modunda analiz gerekmez
+
         try:
-            # Tüm monitörleri analiz et
-            results = self.screen_analyzer.analyze_all_monitors(threshold=self.brightness_threshold)
+            monitor_count = self.screen_analyzer.get_monitor_count()
+            for i in range(monitor_count):
+                img = self.screen_analyzer.capture_monitor(i)
+                was_dimmed = self.monitor_states.get(i, False)
 
-            for monitor_index, is_bright, brightness_value in results:
-                # Bu monitörün önceki durumunu al
-                was_dimmed = self.monitor_states.get(monitor_index, False)
+                # Ekranın %50'sinden fazlası beyaz/açık renkli mi?
+                is_white = self.screen_analyzer.is_light_color_dominant(img, threshold=self.brightness_threshold)
 
-                # Ekran parlaksa ve henüz karartılmamışsa
-                if is_bright and not was_dimmed:
-                    logger.info(f"⚡ Monitör {monitor_index+1}: Parlak ekran tespit edildi! "
-                               f"Parlaklık: {brightness_value:.1f}%")
-                    logger.info(f"   → Monitör {monitor_index+1} parlaklığı {self.target_brightness}%'ye düşürülüyor...")
-
-                    success = self.brightness_controller.dim_screen(
-                        self.target_brightness,
-                        monitor_index
-                    )
-
+                if is_white and not was_dimmed:
+                    success = self.brightness_controller.dim_screen(self.target_brightness, i)
                     if success:
-                        self.monitor_states[monitor_index] = True
-                        logger.info(f"   ✓ Monitör {monitor_index+1} karartıldı")
+                        self.monitor_states[i] = True
+                        logger.info(f"Monitör {i+1}: Beyaz ekran tespit edildi → %{self.target_brightness}'e düşürüldü")
                         if self.gui:
-                            self.gui.update_icon(self.is_active, any(self.monitor_states.values()))
+                            self.gui.update_icon(self.is_active, self.mode, any(self.monitor_states.values()))
 
-                # Ekran artık parlak değilse ve karartılmışsa
-                elif not is_bright and was_dimmed:
-                    logger.info(f"⚡ Monitör {monitor_index+1}: Normal ekran. Parlaklık: {brightness_value:.1f}%")
-                    logger.info(f"   → Monitör {monitor_index+1} orijinal parlaklığa dönüyor...")
-
-                    success = self.brightness_controller.restore_brightness(monitor_index)
-
+                elif not is_white and was_dimmed:
+                    success = self.brightness_controller.restore_brightness(i)
                     if success:
-                        self.monitor_states[monitor_index] = False
-                        logger.info(f"   ✓ Monitör {monitor_index+1} parlaklık geri yüklendi")
+                        self.monitor_states[i] = False
+                        logger.info(f"Monitör {i+1}: Normal ekran → parlaklık geri yüklendi")
                         if self.gui:
-                            self.gui.update_icon(self.is_active, any(self.monitor_states.values()))
+                            self.gui.update_icon(self.is_active, self.mode, any(self.monitor_states.values()))
 
         except Exception as e:
             logger.error(f"Kontrol sırasında hata: {e}", exc_info=True)
@@ -110,21 +123,18 @@ class BrightnessGuard:
         self.is_active = True
         logger.info("✓ Brightness Guard aktif edildi")
         if self.gui:
-            self.gui.update_icon(self.is_active, any(self.monitor_states.values()))
+            self.gui.update_icon(self.is_active, self.mode, any(self.monitor_states.values()))
 
     def deactivate(self):
         """Korumayı devre dışı bırak"""
         self.is_active = False
-
-        # Karartılmış tüm monitörleri geri yükle
         for monitor_index, is_dimmed in self.monitor_states.items():
             if is_dimmed:
                 self.brightness_controller.restore_brightness(monitor_index)
                 self.monitor_states[monitor_index] = False
-
         logger.info("○ Brightness Guard devre dışı bırakıldı")
         if self.gui:
-            self.gui.update_icon(self.is_active, False)
+            self.gui.update_icon(self.is_active, self.mode, False)
 
     def run(self):
         """Ana döngü - Süper responsive!"""
@@ -134,8 +144,11 @@ class BrightnessGuard:
         self.gui = SystemTrayGUI(self)
         gui_thread = self.gui.start()
 
+        # Başlangıç modu: Gece Modu
+        self.set_mode('night')
+
         logger.info("🚀 Brightness Guard çalışıyor (Sistem tepsisinde)")
-        logger.info("⚙️  Ayarlar için sistem tepsisindeki ikona sağ tıklayın")
+        logger.info("⚙️  Mod değiştirmek için sistem tepsisindeki ikona sağ tıklayın")
         logger.info("")
 
         try:
